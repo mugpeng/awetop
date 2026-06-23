@@ -5,6 +5,45 @@ import sys
 from typing import Optional
 
 
+def get_all_processes() -> dict[int, dict]:
+    """Snapshot all processes in a single ps call.
+
+    Returns dict mapping PID -> {cpu_pct, mem_kb, command, ppid}.
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,%cpu=,rss=,command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return {}
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+
+    procs = {}
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 5:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+            cpu = float(parts[2])
+            rss = int(parts[3])
+            cmd = parts[4]
+            procs[pid] = {
+                "cpu_pct": cpu,
+                "mem_kb": rss,
+                "ppid": ppid,
+                "command": cmd,
+            }
+        except (ValueError, IndexError):
+            continue
+    return procs
+
+
 def get_process_info(pid: int) -> Optional[dict]:
     """Get CPU%, RSS memory (KB), and start time for a process.
 
@@ -14,20 +53,12 @@ def get_process_info(pid: int) -> Optional[dict]:
         return None
 
     try:
-        if sys.platform == "darwin":
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "%cpu=,rss=,lstart="],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-        else:
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "%cpu=,rss=,lstart="],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "%cpu=,rss=,lstart="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
 
         if result.returncode != 0:
             return None

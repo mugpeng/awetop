@@ -10,6 +10,88 @@ from typing import Optional
 from .snapshot import Tokens
 
 
+def parse_codex_transcript(file_path: str) -> dict:
+    """Parse a Codex rollout JSONL transcript for lightweight metrics.
+
+    Returns same shape as parse_transcript():
+      - tokens: Tokens
+      - model: str
+      - last_role: str ("user" or "assistant")
+      - has_pending_tool_use: bool
+    """
+    tokens = Tokens()
+    model = ""
+    last_role = ""
+    has_pending_tool_use = False
+    task_complete = False
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                msg_type = entry.get("type", "")
+
+                if msg_type == "event_msg":
+                    payload = entry.get("payload", {})
+                    sub_type = payload.get("type", "")
+
+                    if sub_type == "token_count":
+                        info = payload.get("info", {})
+                        total = info.get("total_token_usage", {})
+                        if total:
+                            inp = total.get("input_tokens", 0)
+                            cache = (
+                                total.get("cached_input_tokens", 0)
+                                or total.get("cache_read_input_tokens", 0)
+                            )
+                            tokens.input = max(tokens.input, inp - cache)
+                            tokens.output = max(
+                                tokens.output, total.get("output_tokens", 0)
+                            )
+                            tokens.cache_read = max(tokens.cache_read, cache)
+
+                    elif sub_type == "user_message":
+                        last_role = "user"
+
+                    elif sub_type == "agent_message":
+                        last_role = "assistant"
+                        has_pending_tool_use = False
+
+                    elif sub_type == "task_complete":
+                        task_complete = True
+
+                elif msg_type == "response_item":
+                    payload = entry.get("payload", {})
+                    if payload.get("type") == "function_call":
+                        has_pending_tool_use = True
+                        last_role = "assistant"
+                    elif payload.get("type") == "function_call_output":
+                        has_pending_tool_use = False
+
+                elif msg_type == "turn_context":
+                    payload = entry.get("payload", {})
+                    m = payload.get("model", "")
+                    if m:
+                        model = m
+
+    except (OSError, PermissionError):
+        pass
+
+    return {
+        "tokens": tokens,
+        "model": model,
+        "last_role": last_role,
+        "has_pending_tool_use": has_pending_tool_use and not task_complete,
+    }
+
+
 def parse_transcript(file_path: str) -> dict:
     """Parse a Claude Code JSONL transcript for lightweight metrics.
 
@@ -114,18 +196,19 @@ def infer_status(
     if not alive:
         return "stopped"
     if last_role == "user":
-        return "running"  # model is thinking
+        return "thinking"  # model is thinking
     if has_pending_tool_use:
         if cpu_pct > 0.5:
-            return "running"  # tool is executing
+            return "executing"  # tool is executing
         return "waiting"  # waiting for tool result
     if cpu_pct > 0.5:
-        return "running"
+        return "executing"
     return "idle"
 
 
 # Known context window sizes
 CONTEXT_WINDOWS = {
+    # Claude models
     "claude-opus-4-6": 200_000,
     "claude-opus-4-5": 200_000,
     "claude-sonnet-4-6": 200_000,
@@ -134,6 +217,16 @@ CONTEXT_WINDOWS = {
     "claude-3-5-sonnet-20241022": 200_000,
     "claude-3-5-haiku-20241022": 200_000,
     "claude-3-opus-20240229": 200_000,
+    # Codex / OpenAI models
+    "o3": 200_000,
+    "o3-mini": 200_000,
+    "o4-mini": 200_000,
+    "gpt-4.1": 1_048_576,
+    "gpt-4.1-mini": 1_048_576,
+    "gpt-4.1-nano": 1_048_576,
+    "gpt-5": 1_000_000,
+    "gpt-5-codex": 1_000_000,
+    "codex-mini": 1_000_000,
 }
 
 DEFAULT_CONTEXT_WINDOW = 200_000

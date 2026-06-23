@@ -21,10 +21,12 @@ class Tokens:
 class Session:
     session_id: str
     pid: Optional[int] = None
+    agent: str = "claude"  # "claude" or "codex"
     model: str = ""
-    status: str = "unknown"  # running, waiting, idle, stopped
+    status: str = "unknown"  # running, thinking, executing, waiting, idle
     profile: str = "-"
     category: str = "-"
+    project: str = "-"
     tokens: Tokens = field(default_factory=Tokens)
     context_pct: float = 0.0
     cpu_pct: float = 0.0
@@ -66,7 +68,7 @@ class Snapshot:
             sessions=sessions,
             total_sessions=len(sessions),
             active_sessions=sum(
-                1 for s in sessions if s.status in ("running", "waiting")
+                1 for s in sessions if s.status in ("thinking", "executing", "waiting")
             ),
             total_cost_usd=total_cost if has_cost else None,
         )

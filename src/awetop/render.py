@@ -1,4 +1,4 @@
-"""ANSI table rendering for terminal output."""
+"""Top-style ANSI rendering for terminal output."""
 
 from datetime import datetime
 from typing import Optional
@@ -13,17 +13,28 @@ _DIM = "\033[2m"
 _RED = "\033[31m"
 _GREEN = "\033[32m"
 _YELLOW = "\033[33m"
-_BLUE = "\033[34m"
+_MAGENTA = "\033[35m"
 _CYAN = "\033[36m"
 _GRAY = "\033[90m"
+_WHITE = "\033[97m"
+
+# Box-drawing characters
+_H = "─"
+_V = "│"
+_TL = "┌"
+_TR = "┐"
+_BL = "└"
+_BR = "┘"
+_LJ = "├"
+_RJ = "┤"
 
 
 def _color_status(status: str) -> str:
     colors = {
-        "running": f"{_CYAN}{status}{_RESET}",
+        "thinking": f"{_CYAN}{status}{_RESET}",
+        "executing": f"{_MAGENTA}{status}{_RESET}",
         "waiting": f"{_YELLOW}{status}{_RESET}",
         "idle": f"{_GREEN}{status}{_RESET}",
-        "stopped": f"{_GRAY}{status}{_RESET}",
     }
     return colors.get(status, status)
 
@@ -47,81 +58,83 @@ def _format_cost(cost: Optional[float]) -> str:
     return f"${cost:.2f}"
 
 
-def _format_uptime(secs: int) -> str:
-    if secs < 60:
-        return f"{secs}s"
-    if secs < 3600:
-        return f"{secs // 60}m"
-    h = secs // 3600
-    m = (secs % 3600) // 60
-    return f"{h}h{m}m"
-
-
 def _pad(s: str, width: int) -> str:
-    # Simple padding (doesn't account for ANSI escape widths, good enough)
     visible = s
-    for code in [_RESET, _BOLD, _DIM, _RED, _GREEN, _YELLOW, _BLUE, _CYAN, _GRAY]:
+    for code in [_RESET, _BOLD, _DIM, _RED, _GREEN, _YELLOW, _MAGENTA, _CYAN, _GRAY, _WHITE]:
         visible = visible.replace(code, "")
     padding = max(0, width - len(visible))
     return s + " " * padding
 
 
 def render_table(snapshot: Snapshot) -> str:
-    """Render sessions as an ANSI table."""
+    """Render sessions as a top-style ANSI table."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = []
 
     # Header
-    header = (
-        f"{_BOLD}awetop{_RESET} — "
+    lines.append(
+        f"{_BOLD}awetop{_RESET} "
+        f"{_DIM}—{_RESET} "
         f"{snapshot.total_sessions} sessions "
-        f"({snapshot.active_sessions} active) — "
+        f"({_GREEN}{snapshot.active_sessions} active{_RESET}) "
+        f"{_DIM}—{_RESET} "
         f"{now}"
     )
-    lines.append(header)
-    lines.append("")
 
     if not snapshot.sessions:
-        lines.append(f"{_DIM}No Claude Code sessions found.{_RESET}")
+        lines.append("")
+        lines.append(f"{_DIM}  No active sessions found.{_RESET}")
         return "\n".join(lines)
 
-    # Column headers
+    # Column definitions
     cols = [
-        ("STATUS", 9),
-        ("PROFILE", 13),
-        ("CATEGORY", 11),
-        ("MODEL", 20),
+        ("AGENT", 7),
+        ("STATUS", 10),
+        ("PROJECT", 16),
+        ("MODEL", 22),
         ("TOKENS(IN/OUT)", 16),
         ("CTX%", 6),
-        ("CPU", 7),
-        ("MEM", 8),
         ("COST", 9),
-        ("UPTIME", 8),
     ]
 
-    header_line = "  ".join(_pad(f"{_BOLD}{name}{_RESET}", w) for name, w in cols)
-    lines.append(header_line)
+    # Content width: sum of column widths + 2-space gaps between columns
+    content_w = sum(w for _, w in cols) + 2 * (len(cols) - 1)
 
+    # Top border
+    lines.append(f"{_DIM}{_TL}{_H * content_w}{_TR}{_RESET}")
+
+    # Column headers
+    header_parts = []
+    for name, w in cols:
+        header_parts.append(_pad(f"{_BOLD}{_WHITE}{name}{_RESET}", w))
+    lines.append(f"{_DIM}{_V}{_RESET} {'  '.join(header_parts)} {_DIM}{_V}{_RESET}")
+
+    # Separator
+    lines.append(f"{_DIM}{_LJ}{_H * content_w}{_RJ}{_RESET}")
+
+    # Session rows
     for s in snapshot.sessions:
-        row = [
-            _pad(_color_status(s.status), cols[0][1]),
-            _pad(s.profile, cols[1][1]),
-            _pad(s.category, cols[2][1]),
-            _pad(s.model[:19] if s.model else "-", cols[3][1]),
-            _pad(_format_tokens(s.tokens), cols[4][1]),
-            _pad(f"{s.context_pct:.0f}%", cols[5][1]),
-            _pad(f"{s.cpu_pct:.1f}%", cols[6][1]),
-            _pad(f"{s.mem_mb:.0f}M", cols[7][1]),
-            _pad(_format_cost(s.cost_usd), cols[8][1]),
-            _pad(_format_uptime(s.elapsed_secs), cols[9][1]),
-        ]
-        lines.append("  ".join(row))
-
-    # Footer with totals
-    if snapshot.total_cost_usd is not None:
-        lines.append("")
-        lines.append(
-            f"{_DIM}Total cost: {_format_cost(snapshot.total_cost_usd)}{_RESET}"
+        agent_str = _pad(s.agent, cols[0][1])
+        status_str = _pad(_color_status(s.status), cols[1][1])
+        project_str = _pad(s.project[: cols[2][1] - 1] if s.project else "-", cols[2][1])
+        model_str = _pad(
+            (s.model[: cols[3][1] - 1] if s.model else "-"),
+            cols[3][1],
         )
+        tokens_str = _pad(_format_tokens(s.tokens), cols[4][1])
+        ctx_str = _pad(f"{s.context_pct:.0f}%", cols[5][1])
+        cost_str = _pad(_format_cost(s.cost_usd), cols[6][1])
+
+        row = f"{agent_str}  {status_str}  {project_str}  {model_str}  {tokens_str}  {ctx_str}  {cost_str}"
+        lines.append(f"{_DIM}{_V}{_RESET} {row} {_DIM}{_V}{_RESET}")
+
+    # Bottom border
+    lines.append(f"{_DIM}{_BL}{_H * content_w}{_BR}{_RESET}")
+
+    # Footer
+    cost_line = ""
+    if snapshot.total_cost_usd is not None:
+        cost_line = f"  {_DIM}Total:{_RESET} {_format_cost(snapshot.total_cost_usd)}"
+    lines.append(f"{cost_line}  {_DIM}Ctrl-C to exit{_RESET}")
 
     return "\n".join(lines)
