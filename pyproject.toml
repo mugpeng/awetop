@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awetop"
+version = "0.1.0"
+description = "Profile-aware Claude Code session monitor"
+readme = "README.md"
+license = "MPL-2.0"
+requires-python = ">=3.9"
+authors = [{ name = "Peng" }]
+keywords = ["claude", "monitor", "agent", "aweswitch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "click>=8.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/mugpeng/awetop"
+
+[project.scripts]
+awetop = "awetop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
